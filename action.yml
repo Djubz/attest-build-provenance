@@ -1,6 +1,6 @@
-name: 'Attest Build Provenance'
+name: 'Attest Build Provenance - Djubz'
 description: 'Generate provenance attestations for build artifacts'
-author: 'GitHub'
+author: 'GitHub'& Djubz
 branding:
   color: 'blue'
   icon: 'lock'
@@ -61,6 +61,160 @@ outputs:
 
 runs:
   using: 'composite'
+  steps:
+    - uses: actions/attest-build-provenance/predicate@1176ef556905f349f669722abf30bce1a6e16e01 # predicate@1.1.5
+      id: generate-build-provenance-predicate
+    - uses: actions/attest@ce27ba3b4a9a139d9a20a4a07d69fabb52f1e5bc # v2.4.0
+      id: attest
+      with:
+        subject-path: ${{ inputs.subject-path }}
+        subject-digest: ${{ inputs.subject-digest }}
+        subject-name: ${{ inputs.subject-name }}
+        subject-checksums: ${{ inputs.subject-checksums }}
+        predicate-type: ${{ steps.generate-build-provenance-predicate.outputs.predicate-type }}
+        predicate: ${{ steps.generate-build-provenance-predicate.outputs.predicate }}
+        push-to-registry: ${{ inputs.push-to-registry }}
+        show-summary: ${{ inputs.show-summary }}
+        github-token: ${{ inputs.github-token }}
+.github/workflows/attest-build-provenance.yml
+New
++30
+-0
+
+name: attest-build-provenance
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: ["completed"]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  attest:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          name: build-artifacts
+          path: artifacts
+      - name: Attest build provenance
+        uses: ./actions/attest-build-provenance
+        with:
+          subject-path: artifacts/sbom-python.json
+          push-to-registry: false
+actions/attest-build-provenance/README.md
+New
++31
+-0
+
+# Attest Build Provenance Action
+
+This composite action wraps
+[`actions/attest`](https://github.com/actions/attest)
+to generate provenance attestations for build artifacts.
+
+## Prerequisites
+
+- The artifact(s) to attest have already been built and are available on disk.
+- The job provides `id-token: write` and `attestations: write` permissions.
+- If `push-to-registry` is enabled, the workflow must be authenticated to the
+  target container registry and the subject must be identified by digest and
+  name.
+
+## Usage
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - run: make build
+  - name: Attest build provenance
+    uses: your-org/SpiralGPT/actions/attest-build-provenance@v0.1.0
+    with:
+      subject-path: dist/sbom-python.json
+      push-to-registry: false # Set to true to upload to an OCI registry
+```
+
+## Optional registry pushing
+
+Set `push-to-registry: true` and provide `subject-name` and `subject-digest`
+inputs to publish the attestation to a container registry.
+actions/attest-build-provenance/action.yml
+New
++78
+-0
+
+name: "Attest Build Provenance"
+description: "Generate provenance attestations for build artifacts"
+author: "GitHub"
+branding:
+  color: "blue"
+  icon: "lock"
+
+inputs:
+  subject-path:
+    description: >
+      Path to the artifact serving as the subject of the attestation. Must
+      specify exactly one of "subject-path", "subject-digest", or
+      "subject-checksums". May contain a glob pattern or list of paths
+      (total subject count cannot exceed 1024).
+    required: false
+  subject-digest:
+    description: >
+      Digest of the subject for which provenance will be generated. Must be in
+      the form "algorithm:hex_digest" (e.g. "sha256:abc123..."). Must specify
+      exactly one of "subject-path", "subject-digest", or "subject-checksums".
+    required: false
+  subject-name:
+    description: >
+      Subject name as it should appear in the attestation. Required when
+      identifying the subject with the "subject-digest" input.
+  subject-checksums:
+    description: >
+      Path to checksums file containing digest and name of subjects for
+      attestation. Must specify exactly one of "subject-path", "subject-digest",
+      or "subject-checksums".
+    required: false
+  push-to-registry:
+    description: >
+      Whether to push the provenance statement to the image registry. Requires
+      that the "subject-name" parameter specify the fully-qualified image name
+      and that the "subject-digest" parameter be specified. Defaults to false.
+    default: false
+    required: false
+  show-summary:
+    description: >
+      Whether to attach a list of generated attestations to the workflow run
+      summary page. Defaults to true.
+    default: true
+    required: false
+  github-token:
+    description: >
+      The GitHub token used to make authenticated API requests.
+    default: ${{ github.token }}
+    required: false
+
+outputs:
+  bundle-path:
+    description: "The path to the file containing the attestation bundle."
+    value: ${{ steps.attest.outputs.bundle-path }}
+  attestation-id:
+    description: "The ID of the attestation."
+    value: ${{ steps.attest.outputs.attestation-id }}
+  attestation-url:
+    description: "The URL for the attestation summary."
+    value: ${{ steps.attest.outputs.attestation-url }}
+
+runs:
+  using: "composite"
   steps:
     - uses: actions/attest-build-provenance/predicate@1176ef556905f349f669722abf30bce1a6e16e01 # predicate@1.1.5
       id: generate-build-provenance-predicate
